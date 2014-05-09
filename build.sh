@@ -4,7 +4,7 @@ VERSION="CTDebian 1.9"
 SOURCE_COMPILE="yes"
 DEST_LANG="en_US"
 DEST_LANGUAGE="en"
-DEST=/tmp/Cubie
+DEST=/var/tmp/Cubietruck-Debian/tmp/Cubie
 ROOTPWD="1234"
 # --- End -----------------------------------------------------------------------
 SRC=$(pwd)
@@ -144,7 +144,7 @@ fi
 echo "------ Creating SD Images"
 cd $DEST/output
 # create 1G image and mount image to next free loop device
-dd if=/dev/zero of=debian_rootfs.raw bs=1M count=1000
+dd if=/dev/zero of=debian_rootfs.raw bs=1M count=4000
 LOOP=$(losetup -f)
 losetup $LOOP debian_rootfs.raw
 sync
@@ -178,7 +178,7 @@ mount -t ext4 $LOOP $DEST/output/sdcard/
 
 echo "------ Install basic filesystem"
 # install base system
-debootstrap --no-check-gpg --arch=armhf --foreign wheezy $DEST/output/sdcard/
+debootstrap --no-check-gpg --arch=armhf --foreign jessie $DEST/output/sdcard/
 # we need this
 cp /usr/bin/qemu-arm-static $DEST/output/sdcard/usr/bin/
 # enable arm binary format so that the cross-architecture chroot environment will work
@@ -206,12 +206,13 @@ touch $DEST/output/sdcard/etc/motd
 
 # apt list
 cat <<EOT > $DEST/output/sdcard/etc/apt/sources.list
-deb http://http.debian.net/debian wheezy main contrib non-free
-deb-src http://http.debian.net/debian wheezy main contrib non-free
-deb http://http.debian.net/debian wheezy-updates main contrib non-free
-deb-src http://http.debian.net/debian wheezy-updates main contrib non-free
-deb http://security.debian.org/debian-security wheezy/updates main contrib non-free
-deb-src http://security.debian.org/debian-security wheezy/updates main contrib non-free
+deb http://http.debian.net/debian jessie main contrib 
+#deb http://http.debian.net/debian jessie main contrib non-free
+#deb-src http://http.debian.net/debian jessie main contrib non-free
+#deb http://http.debian.net/debian jessie-updates main contrib non-free
+#deb-src http://http.debian.net/debian jessie-updates main contrib non-free
+#deb http://security.debian.org/debian-security jessie/updates main contrib non-free
+#deb-src http://security.debian.org/debian-security jessie/updates main contrib non-free
 EOT
 
 # update
@@ -263,7 +264,7 @@ echo -e $DEST_LANG'.UTF-8 UTF-8\n' > $DEST/output/sdcard/etc/locale.gen
 chroot $DEST/output/sdcard /bin/bash -c "locale-gen"
 echo -e 'LANG="'$DEST_LANG'.UTF-8"\nLANGUAGE="'$DEST_LANG':'$DEST_LANGUAGE'"\n' > $DEST/output/sdcard/etc/default/locale
 chroot $DEST/output/sdcard /bin/bash -c "export LANG=$DEST_LANG.UTF-8"
-chroot $DEST/output/sdcard /bin/bash -c "apt-get -qq -y install bluetooth lirc alsa-utils netselect-apt sysfsutils hddtemp bc figlet toilet screen hdparm libfuse2 ntfs-3g bash-completion lsof console-data sudo git hostapd dosfstools htop openssh-server ca-certificates module-init-tools dhcp3-client udev ifupdown iproute iputils-ping ntpdate ntp rsync usbutils uboot-envtools pciutils wireless-tools wpasupplicant procps libnl-dev parted cpufrequtils console-setup unzip bridge-utils" 
+chroot $DEST/output/sdcard /bin/bash -c "apt-get -qq -y install bluetooth lirc alsa-utils netselect-apt sysfsutils hddtemp bc figlet toilet screen hdparm libfuse2 ntfs-3g bash-completion lsof console-data sudo git hostapd dosfstools htop openssh-server ca-certificates module-init-tools dhcp3-client udev ifupdown iproute iputils-ping ntpdate ntp rsync usbutils pciutils wireless-tools wpasupplicant procps libnl-dev parted console-setup unzip bridge-utils vim less make automake autoconf wget curl" 
 chroot $DEST/output/sdcard /bin/bash -c "apt-get -qq -y upgrade"
 
 # change dynamic motd
@@ -289,11 +290,6 @@ sed -e 's/# Required-Stop:     umountnfs $time/# Required-Stop:     umountnfs $t
 
 # console
 chroot $DEST/output/sdcard /bin/bash -c "export TERM=linux" 
-
-# configure MIN / MAX Speed for cpufrequtils
-sed -e 's/MIN_SPEED="0"/MIN_SPEED="480000"/g' -i $DEST/output/sdcard/etc/init.d/cpufrequtils
-sed -e 's/MAX_SPEED="0"/MAX_SPEED="1200000"/g' -i $DEST/output/sdcard/etc/init.d/cpufrequtils
-sed -e 's/ondemand/interactive/g' -i $DEST/output/sdcard/etc/init.d/cpufrequtils
 
 # set password to 1234
 chroot $DEST/output/sdcard /bin/bash -c "(echo $ROOTPWD;echo $ROOTPWD;) | passwd root" 
