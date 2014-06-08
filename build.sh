@@ -1,6 +1,6 @@
 #!/bin/bash
 # --- Configuration -------------------------------------------------------------
-VERSION="CTDebian 1.9"
+VERSION="CTDebian 2.0"
 SOURCE_COMPILE="yes"
 DEST_LANG="en_US"
 DEST_LANGUAGE="en"
@@ -44,7 +44,8 @@ if [ -d "$DEST/u-boot-sunxi" ]
 then
 	cd $DEST/u-boot-sunxi ; git pull; cd $SRC
 else
-	#git clone https://github.com/cubieboard/u-boot-sunxi $DEST/u-boot-sunxi # Boot loader
+	#git clone https://github.com/linux-sunxi/u-boot-sunxi $DEST/u-boot-sunxi     # Experimental boot loader
+	#cd $DEST/u-boot-sunxi; patch -p1 < $SRC/patch/uboot-dualboot.patch           # Patching for dual boot
 	git clone https://github.com/patrickhwood/u-boot -b pat-cb2-ct  $DEST/u-boot-sunxi # CB2 / CT Dual boot loader
 fi
 if [ -d "$DEST/sunxi-tools" ]
@@ -63,8 +64,9 @@ if [ -d "$DEST/linux-sunxi" ]
 then
 	cd $DEST/linux-sunxi; git pull -f; cd $SRC
 else
-	# git clone https://github.com/cubieboard/linux-sunxi/ $DEST/linux-sunxi # Kernel 3.4.61+
-	git clone https://github.com/patrickhwood/linux-sunxi $DEST/linux-sunxi # Patwood's kernel 3.4.75+
+	# git clone https://github.com/linux-sunxi/linux-sunxi -b sunxi-devel $DEST/linux-sunxi # Experimental kernel
+	# git clone https://github.com/patrickhwood/linux-sunxi $DEST/linux-sunxi # Patwood's kernel 3.4.75+
+	git clone https://github.com/igorpecovnik/linux-sunxi $DEST/linux-sunxi # Dan-and + patwood's kernel 3.4.91+
 fi
 if [ -d "$DEST/sunxi-lirc" ]
 then
@@ -76,18 +78,21 @@ fi
 
 if [ "$SOURCE_COMPILE" = "yes" ]; then
 
+# Applying Patch for CB2 stability
+sed -e 's/.clock = 480/.clock = 432/g' -i $DEST/u-boot-sunxi/board/sunxi/dram_cubieboard2.c 
+
 # Applying Patch for I2S
-cd $DEST/linux-sunxi/ 
-patch -p1 < $SRC/patch/0001-I2S-module-rework.patch
+#cd $DEST/linux-sunxi/ 
+#patch -p1 < $SRC/patch/0001-I2S-module-rework.patch
 
 # Applying Patch for Lirc
-cd $DEST/linux-sunxi/
-cp $DEST/sunxi-lirc/*.c $DEST/linux-sunxi/drivers/staging/media/lirc/
-patch -p1 < $DEST/sunxi-lirc/install_staging.patch
+#cd $DEST/linux-sunxi/
+#cp $DEST/sunxi-lirc/*.c $DEST/linux-sunxi/drivers/staging/media/lirc/
+#patch -p1 < $DEST/sunxi-lirc/install_staging.patch
 
 # Applying Patch for Clustering 
-cd $DEST/linux-sunxi/ 
-patch -p1 < $SRC/patch/clustering-patch-3.4-ja1.patch
+#cd $DEST/linux-sunxi/ 
+#patch -p1 < $SRC/patch/clustering-patch-3.4-ja1.patch
 
 # Applying Patch for "high load". Could cause troubles with USB OTG port
 sed -e 's/usb_detect_type     = 1/usb_detect_type     = 0/g' -i $DEST/cubie_configs/sysconfig/linux/cubietruck.fex 
@@ -172,6 +177,9 @@ mkfs.ext4 $LOOP
 # tune filesystem
 tune2fs -o journal_data_writeback $LOOP
 
+# label it
+e2label $LOOP "Debian"
+
 # create mount point and mount image 
 mkdir -p $DEST/output/sdcard/
 mount -t ext4 $LOOP $DEST/output/sdcard/
@@ -251,7 +259,8 @@ cp $SRC/bin/nand1-cubietruck-debian-boot.tgz $DEST/output/sdcard/root
 cp $SRC/bin/ramlog_2.0.0_all.deb $DEST/output/sdcard/tmp
 
 # install custom bashrc
-cp $SRC/scripts/bashrc $DEST/output/sdcard/root/.bashrc
+#cp $SRC/scripts/bashrc $DEST/output/sdcard/root/.bashrc
+cat $SRC/scripts/bashrc >> $DEST/output/sdcard/etc/bash.bashrc 
 
 # make it executable
 chroot $DEST/output/sdcard /bin/bash -c "chmod +x /etc/init.d/cubian-*"
@@ -266,6 +275,7 @@ echo -e 'LANG="'$DEST_LANG'.UTF-8"\nLANGUAGE="'$DEST_LANG':'$DEST_LANGUAGE'"\n' 
 chroot $DEST/output/sdcard /bin/bash -c "export LANG=$DEST_LANG.UTF-8"
 chroot $DEST/output/sdcard /bin/bash -c "apt-get -qq -y install bluetooth lirc alsa-utils netselect-apt sysfsutils hddtemp bc figlet toilet screen hdparm libfuse2 ntfs-3g bash-completion lsof console-data sudo git hostapd dosfstools htop openssh-server ca-certificates module-init-tools dhcp3-client udev ifupdown iproute iputils-ping ntpdate ntp rsync usbutils pciutils wireless-tools wpasupplicant procps libnl-dev parted console-setup unzip bridge-utils vim less make automake autoconf wget curl" 
 chroot $DEST/output/sdcard /bin/bash -c "apt-get -qq -y upgrade"
+chroot $DEST/output/sdcard /bin/bash -c "apt-get -y clean"
 
 # change dynamic motd
 ZAMENJAJ='echo "" > /var/run/motd.dynamic'
@@ -290,6 +300,13 @@ sed -e 's/# Required-Stop:     umountnfs $time/# Required-Stop:     umountnfs $t
 
 # console
 chroot $DEST/output/sdcard /bin/bash -c "export TERM=linux" 
+
+# eth0 should run on a dedicated processor
+sed -e 's/exit 0//g' -i $DEST/output/sdcard/etc/rc.local
+cat >> $DEST/output/sdcard/etc/rc.local <<"EOF"
+echo 2 > /proc/irq/$(cat /proc/interrupts | grep eth0 | cut -f 1 -d ":" )/smp_affinity
+exit 0
+EOF
 
 # set password to 1234
 chroot $DEST/output/sdcard /bin/bash -c "(echo $ROOTPWD;echo $ROOTPWD;) | passwd root" 
@@ -379,6 +396,11 @@ cp -R $DEST/linux-sunxi/output/lib/modules $DEST/output/sdcard/lib/
 cp -R $DEST/linux-sunxi/output/lib/firmware/ $DEST/output/sdcard/lib/
 cp -R $DEST/linux-sunxi/output/include/ $DEST/output/sdcard/usr/
 
+# copy Module.symvers
+cp $DEST/linux-sunxi/Module.symvers $DEST/output/sdcard/usr/include
+
+# remove false links to the kernel source
+# find $DEST/output/sdcard/lib -type l -exec rm -f {} \;
 
 # USB redirector tools http://www.incentivespro.com
 cd $DEST
@@ -427,9 +449,11 @@ VGA=$VERSION"_vga"
 HDMI=$VERSION"_hdmi"
 #####
 
+sleep 5
 # create kernel + modules + headers + firmare
 cd $DEST/output/sdcard
-tar cvPfz $DEST/output/$VERSION_kernel_mod_head_fw.tgz -T $SRC/config/file.list
+tar cvPfz $DEST"/output/"$VERSION"_kernel_mod_head_fw.tgz" -T $SRC/config/file.list
+sleep 5
 
 rm $DEST/output/sdcard/usr/bin/qemu-arm-static 
 # umount images 
